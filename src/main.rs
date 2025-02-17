@@ -4,7 +4,6 @@ use std::{
     process,
     sync::{Arc, atomic::{AtomicBool, Ordering}},
     thread,
-    time::Duration,
 };
 use signal_hook::iterator::Signals;
 
@@ -30,9 +29,6 @@ fn handle_signals(signals: Vec<i32>, running: Arc<AtomicBool>) {
 }
 
 fn main() {
-    let running = Arc::new(AtomicBool::new(true));
-    let r = running.clone();
-
     let args: Vec<String> = std::env::args().collect();
     if args.len() <2 {
         eprintln!("Usage: {} <file>", args[0]);
