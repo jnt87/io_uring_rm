@@ -6,3 +6,4 @@ edition = "2021"
 [dependencies]
 io-uring = "0.7.4"
 libc = "0.2.169"
+signal-hook = "0.3.17"
