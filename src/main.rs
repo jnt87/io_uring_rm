@@ -28,22 +28,20 @@ macro_rules! trust_me_bro {
     };
 }
 
-fn list_dir2(path: &str) -> io::Result<Vec<String>> {
+fn list_dir(path: &str) -> io::Result<Vec<String>> {
     let mut entries = Vec::new();
 
     for entry in fs::read_dir(Path::new(path))? {
         let entry = entry?;
-        let path = entry.path();
-        if let Some(name) = path.file_name() {
-            if let Some(name_str) = name.to_str() {
-                entries.push(name_str.to_string());
-            }
+        let path_buf = entry.path();
+        if let Some(path_str) = path_buf.to_str() {
+            entries.push(path_str.to_string());
         }
     }
     Ok(entries)
 }
 
-fn list_dir(path: &str) -> io::Result<Vec<String>> {
+fn list_dir2(path: &str) -> io::Result<Vec<String>> {
     let dir = OpenOptions::new().read(true).open(path)?;
     let fd = dir.as_raw_fd();
     let mut buf = vec![0; 4096];
@@ -76,32 +74,32 @@ fn list_dir(path: &str) -> io::Result<Vec<String>> {
 }
 
 fn delete_directory_iteratively(root_path: &str, ring: &mut IoUring) {
-    let mut stack = VecDeque::new();
-    stack.push_back(root_path.to_string());
+    let mut queue = Box::new(VecDeque::new());
+    queue.push_back(root_path.to_string());
 
     let mut file_deletions: Vec<String> = Vec::new();
     let mut dir_deletions: Vec<String> = Vec::new();
     println!("Path: {}", root_path);
-    while let Some(path) = stack.pop_back() {
-        match list_dir2(&path) {
+    while let Some(path) = queue.pop_front() {
+        match list_dir(&path) {
             Ok(entries) => {
-                let mut has_subdirs = false;
                 for entry in entries {
-                    let metadata = std::fs::metadata(&entry).unwrap();
-                    if metadata.is_dir() {
-                        println!("Adding dir: {} to be checked", entry);
-                        stack.push_back(entry);
-                        has_subdirs = true;
-                    } else {
-                        println!("Adding file: {} to be deleted", entry);
-                        file_deletions.push(entry);
+                    match std::fs::metadata(&entry) {
+                        Ok(metadata) => {
+                            if metadata.is_dir() {
+                                println!("Adding dir: {} to be checked", entry);
+                                queue.push_back(entry);
+                            } else {
+                                println!("Adding file: {} to be deleted", entry);
+                                file_deletions.push(entry);
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("Warning: Could not access '{}': {}", entry, e);
+                        }
                     }
                 }
-                if !has_subdirs {
-                    println!("Adding file: {} to be deleted", path);
-                } else {
-                    stack.push_back(path);
-                }
+                dir_deletions.push(path);
             }
             Err(err) => {
                 eprintln!("Failed to list '{}': {}", path, err);
@@ -109,12 +107,21 @@ fn delete_directory_iteratively(root_path: &str, ring: &mut IoUring) {
         }
     }
     {
+        let mut counter = 0;
         let mut sq = ring.submission();
         for file in file_deletions {
-            let c_file = CString::new(file.as_bytes()).unwrap(); //bad
+            let c_file = match CString::new(file.as_bytes()) {
+                Ok(c) => c,
+                Err(_) => {
+                    eprintln!("Failed to convert path to CString: {}", file);
+                    continue;
+                }
+            };
             let entry = opcode::UnlinkAt::new(types::Fd(AT_FDCWD), c_file.as_ptr())
                 .build()
-                .user_data(0);
+                .user_data(counter);
+            counter += 1;
+
             println!("Submitting request Unlinking {}", file);
             unsafe {
                 let _ = sq.push(&entry); //dont ignore
@@ -122,13 +129,15 @@ fn delete_directory_iteratively(root_path: &str, ring: &mut IoUring) {
         }
     }
     {
+        let mut counter = 0;
         let mut sq = ring.submission();
         for dir in dir_deletions.into_iter().rev() {
             let c_dir = CString::new(dir.as_bytes()).unwrap();
             let entry = opcode::UnlinkAt::new(types::Fd(AT_FDCWD), c_dir.as_ptr())
                 .flags(AT_REMOVEDIR)
                 .build()
-                .user_data(1);
+                .user_data(counter);
+            counter += 1;
             println!("Submitting request Removing directory {}", dir);
             unsafe {
                 let _ = sq.push(&entry);
@@ -209,7 +218,7 @@ fn main() {
     };
     
     if metadata.is_dir() {
-        let entries = list_dir2(path).unwrap();
+        let entries = list_dir(path).unwrap();
         println!("Entries: {:?}", entries);
     }
 
