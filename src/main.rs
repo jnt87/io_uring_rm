@@ -7,6 +7,7 @@ use std::{
     collections::VecDeque,
     ffi::{CString, CStr},
     process,
+    path::Path,
     fs,
     fs::OpenOptions,
     io,
@@ -27,6 +28,21 @@ macro_rules! trust_me_bro {
     };
 }
 
+fn list_dir2(path: &str) -> io::Result<Vec<String>> {
+    let mut entries = Vec::new();
+
+    for entry in fs::read_dir(Path::new(path))? {
+        let entry = entry?;
+        let path = entry.path();
+        if let Some(name) = path.file_name() {
+            if let Some(name_str) = name.to_str() {
+                entries.push(name_str.to_string());
+            }
+        }
+    }
+    Ok(entries)
+}
+
 fn list_dir(path: &str) -> io::Result<Vec<String>> {
     let dir = OpenOptions::new().read(true).open(path)?;
     let fd = dir.as_raw_fd();
@@ -37,7 +53,6 @@ fn list_dir(path: &str) -> io::Result<Vec<String>> {
         if nread < 0 {
             return Err(io::Error::last_os_error());
         }
-
         let mut offset = 0;
         while offset < nread as usize { 
             println!("list_dir while loop");
@@ -46,14 +61,15 @@ fn list_dir(path: &str) -> io::Result<Vec<String>> {
             if d.d_reclen == 0 {
                 break;
             }
-
-            let name = CStr::from_ptr(d.d_name.as_ptr())
-                .to_string_lossy()
-                .into_owned();
+            let name_bytes = &d.d_name;
+            let name_cstr = CStr::from_ptr(name_bytes.as_ptr().cast());
+            let name = name_cstr.to_string_lossy().into_owned();
+            println!("Name: {}", name);
             if name != "." && name != ".." {
                 entries.push(format!("{}/{}", path, name));
             }
             offset += d.d_reclen as usize;
+            println!("offset: {} and d_reclen: {}", offset, d.d_reclen);
         }
     };
     Ok(entries)
@@ -67,23 +83,24 @@ fn delete_directory_iteratively(root_path: &str, ring: &mut IoUring) {
     let mut dir_deletions: Vec<String> = Vec::new();
     println!("Path: {}", root_path);
     while let Some(path) = stack.pop_back() {
-        match list_dir(&path) {
+        match list_dir2(&path) {
             Ok(entries) => {
-                if entries.is_empty() {
-                    println!("Adding {} to dir_deletions", path);
-                    dir_deletions.push(path);
-                } else {
-                    stack.push_back(path.clone());
-                    for entry in entries {
-                        let metadata = std::fs::metadata(&entry).unwrap(); //fix handling
-                        if metadata.is_dir() {
-                            println!("Adding dir: {} to be checked", entry);
-                            stack.push_back(entry);
-                        } else {
-                            println!("Adding file: {} to be deleted", entry);
-                            file_deletions.push(entry);
-                        }
+                let mut has_subdirs = false;
+                for entry in entries {
+                    let metadata = std::fs::metadata(&entry).unwrap();
+                    if metadata.is_dir() {
+                        println!("Adding dir: {} to be checked", entry);
+                        stack.push_back(entry);
+                        has_subdirs = true;
+                    } else {
+                        println!("Adding file: {} to be deleted", entry);
+                        file_deletions.push(entry);
                     }
+                }
+                if !has_subdirs {
+                    println!("Adding file: {} to be deleted", path);
+                } else {
+                    stack.push_back(path);
                 }
             }
             Err(err) => {
@@ -176,7 +193,7 @@ fn wait_for_io_uring(ring: &mut IoUring, running: &Arc<AtomicBool>) {
 fn main() {
     println!("Started rm");
     let args: Vec<String> = std::env::args().collect();
-    if args.len() <2 {
+    if args.len() < 2 {
         eprintln!("Usage: {} <file>", args[0]);
         process::exit(1);
     }
@@ -192,7 +209,7 @@ fn main() {
     };
     
     if metadata.is_dir() {
-        let entries = list_dir(path).unwrap();
+        let entries = list_dir2(path).unwrap();
         println!("Entries: {:?}", entries);
     }
 
