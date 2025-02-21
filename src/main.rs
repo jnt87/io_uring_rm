@@ -5,7 +5,7 @@ use io_uring::{
 };
 use std::{
     collections::VecDeque,
-    ffi::{CString, CStr},
+    ffi::{CString, CStr, c_char},
     process,
     path::Path,
     fs,
@@ -17,7 +17,7 @@ use std::{
     time::Duration,
 };
 use signal_hook::iterator::Signals;
-use libc::{dirent64, AT_REMOVEDIR, AT_FDCWD, O_RDONLY}; //want to add O_TRUNC as a fast mode if we
+use libc::{dirent64, AT_REMOVEDIR, AT_FDCWD, O_RDONLY, unlinkat}; //want to add O_TRUNC as a fast mode if we
                                                         //think we will replace files
 
 macro_rules! trust_me_bro {
@@ -110,19 +110,30 @@ fn delete_directory_iteratively(root_path: &str, ring: &mut IoUring) {
         let mut counter = 0;
         let mut sq = ring.submission();
         for file in file_deletions {
-            let c_file = match CString::new(file.as_bytes()) {
+            let c_file = match CString::new(file.clone()) {
                 Ok(c) => c,
-                Err(_) => {
-                    eprintln!("Failed to convert path to CString: {}", file);
+                Err(e) => {
+                    eprintln!("Failed to convert path to CString: {:?}", file);
                     continue;
                 }
             };
-            let entry = opcode::UnlinkAt::new(types::Fd(AT_FDCWD), c_file.as_ptr())
+            if !Path::new(&file).exists() {
+                eprintln!("found file does not exists");
+            }
+            let exists = Path::new(&file).exists();
+            if exists {
+                println!("File exists");
+            } else {
+                println!("File does not exit");
+            }
+            let c_ptr: *const c_char = c_file.as_ptr();
+            println!("c_ptr: {:?}", c_ptr);
+            let entry = opcode::UnlinkAt::new(types::Fd(AT_FDCWD), c_ptr)
                 .build()
                 .user_data(counter);
             counter += 1;
 
-            println!("Submitting request Unlinking {}", file);
+            println!("Submitting request Unlinking {:?}", file);
             unsafe {
                 let _ = sq.push(&entry); //dont ignore
             }
@@ -132,13 +143,23 @@ fn delete_directory_iteratively(root_path: &str, ring: &mut IoUring) {
         let mut counter = 0;
         let mut sq = ring.submission();
         for dir in dir_deletions.into_iter().rev() {
-            let c_dir = CString::new(dir.as_bytes()).unwrap();
-            let entry = opcode::UnlinkAt::new(types::Fd(AT_FDCWD), c_dir.as_ptr())
+            let c_dir = match CString::new(dir.clone()) {
+                Ok(c) => c,
+                Err(_) => {
+                    println!("Failed to convert path ot CString: {:?}", dir);
+                    continue;
+                }
+            };
+            if !Path::new(&dir).exists() {
+                eprintln!("found dir does not exists");
+            }
+            let c_ptr: *const c_char = c_dir.as_ptr();
+            let entry = opcode::UnlinkAt::new(types::Fd(AT_FDCWD), c_ptr)
                 .flags(AT_REMOVEDIR)
                 .build()
                 .user_data(counter);
             counter += 1;
-            println!("Submitting request Removing directory {}", dir);
+            println!("Submitting request Removing directory {:?}", dir);
             unsafe {
                 let _ = sq.push(&entry);
             }
@@ -182,6 +203,7 @@ fn wait_for_io_uring(ring: &mut IoUring, running: &Arc<AtomicBool>) {
                         return;
                     }
                     if cqe.result() < 0 {
+                        println!("User data: {} Result: {}", cqe.user_data(), cqe.result());
                         eprintln!("Error: {}", std::io::Error::from_raw_os_error(-cqe.result()));
                     }
                 }
