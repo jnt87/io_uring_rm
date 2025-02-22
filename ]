@@ -246,8 +246,8 @@ fn main() {
         process::exit(1);
     }
 
-    let mut path = &args[1];
-    let dir = &args[2];
+    let path = &args[1];
+    let dir = &args[1];
     let mut c_path;
     let metadata = match std::fs::metadata(path) {
         Ok(meta) => meta,
@@ -275,20 +275,11 @@ fn main() {
     if false {
         delete_directory_iteratively(path, &mut ring);
     } else {
-        let vector = match list_dir(dir) {
-            Ok(vec) => vec,
-            Err(e) => {
-                eprintln!("Error occurred: {}", e);
-                return;
-            }
-        };
+        let vector = list_dir(dir).unwrap(*)
         println!("just a file...");
         println!("check1: {}", path.to_string());
-        println!("check2: {:?}", vector);
-        if let Some(index) = vector.iter().position(|s| s == path) {
-            path = vector.get(index).unwrap();
-            println!("path to string: {}", path.to_string());
-        }
+        println!("check2: {:?}", list_dir(dir).unwrap());
+        let index = list_dir(dir).unwrap().iter().position(|s| s == path.to_string())
         c_path = CString::new(path.to_string()).unwrap(); //bad
         let entry = opcode::UnlinkAt::new(types::Fd(libc::AT_FDCWD), c_path.as_ptr())
             .build()
