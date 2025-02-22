@@ -17,8 +17,9 @@ use std::{
     time::Duration,
 };
 use signal_hook::iterator::Signals;
-use libc::{dirent64, AT_REMOVEDIR, AT_FDCWD, O_RDONLY, unlinkat, access, F_OK}; //want to add O_TRUNC as a fast mode if we
+use libc::{dirent64, AT_REMOVEDIR, AT_FDCWD, O_RDONLY, unlinkat, access, F_OK, DT_DIR, DT_REG}; //want to add O_TRUNC as a fast mode if we
                                                         //think we will replace files
+
 
 macro_rules! trust_me_bro {
     ($($stmt:stmt;)*) => {
@@ -28,7 +29,7 @@ macro_rules! trust_me_bro {
     };
 }
 
-fn list_dir(path: &str) -> io::Result<Vec<String>> {
+fn list_dir_entries(path: &str) -> io::Result<Vec<String>> {
     let mut entries = Vec::new();
 
     for entry in fs::read_dir(Path::new(path))? {
@@ -41,38 +42,6 @@ fn list_dir(path: &str) -> io::Result<Vec<String>> {
     Ok(entries)
 }
 
-fn list_dir2(path: &str) -> io::Result<Vec<String>> {
-    let dir = OpenOptions::new().read(true).open(path)?;
-    let fd = dir.as_raw_fd();
-    let mut buf = vec![0; 4096];
-    let mut entries = Vec::new();
-    unsafe {
-        let nread = libc::syscall(libc::SYS_getdents64, fd, buf.as_mut_ptr(), buf.len()) as isize;
-        if nread < 0 {
-            return Err(io::Error::last_os_error());
-        }
-        let mut offset = 0;
-        while offset < nread as usize { 
-            println!("list_dir while loop");
-            let d = &*(buf.as_ptr().add(offset) as *const dirent64);
-
-            if d.d_reclen == 0 {
-                break;
-            }
-            let name_bytes = &d.d_name;
-            let name_cstr = CStr::from_ptr(name_bytes.as_ptr().cast());
-            let name = name_cstr.to_string_lossy().into_owned();
-            println!("Name: {}", name);
-            if name != "." && name != ".." {
-                entries.push(format!("{}/{}", path, name));
-            }
-            offset += d.d_reclen as usize;
-            println!("offset: {} and d_reclen: {}", offset, d.d_reclen);
-        }
-    };
-    Ok(entries)
-}
-
 fn delete_directory_iteratively(root_path: &str, ring: &mut IoUring) {
     let mut queue = Box::new(VecDeque::new());
     queue.push_back(root_path.to_string());
@@ -81,7 +50,7 @@ fn delete_directory_iteratively(root_path: &str, ring: &mut IoUring) {
     let mut dir_deletions: Vec<String> = Vec::new();
     println!("Path: {}", root_path);
     while let Some(path) = queue.pop_front() {
-        match list_dir(&path) {
+        match list_dir_entries(&path) {
             Ok(entries) => {
                 for entry in entries {
                     match std::fs::metadata(&entry) {
@@ -240,6 +209,7 @@ fn wait_for_io_uring(ring: &mut IoUring, running: &Arc<AtomicBool>) {
 
 fn main() {
     println!("Started rm");
+
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 3 {
         eprintln!("Usage: {} <file>", args[0]);
@@ -258,7 +228,7 @@ fn main() {
     };
     
     if metadata.is_dir() {
-        let entries = list_dir(path).unwrap();
+        let entries = list_dir_entries(path).unwrap();
         println!("Entries: {:?}", entries);
     }
 
@@ -271,11 +241,11 @@ fn main() {
     let signals = vec![libc::SIGINT, libc::SIGTERM, libc::SIGHUP];
 
     handle_signals(signals, running.clone());
-//    if metadata.is_dir() {
-    if false {
+    if metadata.is_dir() {
+//    if false {
         delete_directory_iteratively(path, &mut ring);
     } else {
-        let vector = match list_dir(dir) {
+        let vector = match list_dir_entries(dir) {
             Ok(vec) => vec,
             Err(e) => {
                 eprintln!("Error occurred: {}", e);
@@ -288,6 +258,9 @@ fn main() {
         if let Some(index) = vector.iter().position(|s| s == path) {
             path = vector.get(index).unwrap();
             println!("path to string: {}", path.to_string());
+        } else {
+            println!("found strings not valid");
+            process::exit(1);
         }
         c_path = CString::new(path.to_string()).unwrap(); //bad
         let entry = opcode::UnlinkAt::new(types::Fd(libc::AT_FDCWD), c_path.as_ptr())
