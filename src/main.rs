@@ -36,6 +36,7 @@ fn list_dir_entries(path: &str) -> io::Result<Vec<String>> {
         let entry = entry?;
         let path_buf = entry.path();
         if let Some(path_str) = path_buf.to_str() {
+            println!("entry: {}", path_str.to_string());
             entries.push(path_str.to_string());
         }
     }
@@ -48,19 +49,27 @@ fn delete_directory_iteratively(root_path: &str, ring: &mut IoUring) {
 
     let mut file_deletions: Vec<String> = Vec::new();
     let mut dir_deletions: Vec<String> = Vec::new();
-    println!("Path: {}", root_path);
+    let mut sqe_storage_file: Vec<io_uring::squeue::Entry> = Vec::new();
+    let mut sqe_storage_dir: Vec<io_uring::squeue::Entry> = Vec::new();
+    let mut path_storage: Vec<CString> = Vec::new();
     while let Some(path) = queue.pop_front() {
+        println!("Scanning path: {}", path.to_string());
         match list_dir_entries(&path) {
             Ok(entries) => {
+                if entries.is_empty() {
+                    println!("scanned dir is empty, adding for deletion");
+                    dir_deletions.push(path.clone());
+                    continue;
+                }
                 for entry in entries {
                     match std::fs::metadata(&entry) {
                         Ok(metadata) => {
                             if metadata.is_dir() {
                                 println!("Adding dir: {} to be checked", entry);
-                                queue.push_back(entry);
+                                queue.push_back(entry.clone());
                             } else {
                                 println!("Adding file: {} to be deleted", entry);
-                                file_deletions.push(entry);
+                                file_deletions.push(entry.clone());
                             }
                         }
                         Err(e) => {
@@ -68,51 +77,67 @@ fn delete_directory_iteratively(root_path: &str, ring: &mut IoUring) {
                         }
                     }
                 }
-                dir_deletions.push(path);
             }
             Err(err) => {
                 eprintln!("Failed to list '{}': {}", path, err);
             }
         }
     }
+    println!("files to be deleted: {:?}", file_deletions);
+
     {
         let mut counter = 0;
-        let mut sq = ring.submission();
         for file in file_deletions {
-            let c_file = match CString::new(file.replace("\0", "")) {
+            let c_file = match CString::new(file.clone()) {
                 Ok(c) => c,
                 Err(e) => {
                     eprintln!("Failed to convert path to CString: {:?}", file);
                     continue;
                 }
             };
-            if !Path::new(&file).exists() {
-                eprintln!("found file does not exists");
-            }
-            let exists = Path::new(&file).exists();
-            if exists {
-                println!("File exists");
-            } else {
-                println!("File does not exit");
-            }
-            let c_ptr: *const c_char = c_file.as_ptr();
-            let exists = unsafe { access(c_ptr, F_OK) == 0};
-            if exists {
-                println!("CFile exists");
-            } else {
+            path_storage.push(c_file);
+            let c_file_ref = path_storage.last().unwrap();
+            let exists_in_rust = Path::new(&file.clone()).exists();
+            let c_ptr: *const c_char = c_file_ref.as_ptr();
+            let exists_in_c = unsafe { access(c_ptr, F_OK) == 0};
+            if exists_in_rust && exists_in_c {
+                println!("file exists in both");
+            } else if exists_in_rust {
                 println!("CFile does not exit");
+            } else {
+                println!("file does not exist at all");
             }
 
-            println!("c_ptr: {:?}", c_ptr);
-            let entry = opcode::UnlinkAt::new(types::Fd(AT_FDCWD), c_ptr)
+            println!("c_ptr: {:p}", c_ptr);
+            let entry = opcode::UnlinkAt::new(types::Fd(AT_FDCWD), c_file_ref.as_ptr())
                 .build()
                 .user_data(counter);
             counter += 1;
 
+
+            println!("Adding to storage");
+            sqe_storage_file.push(entry);
             println!("Submitting request Unlinking {:?}", file);
-            unsafe {
-                let _ = sq.push(&entry); //dont ignore
-            }
+        }
+    }
+
+    let mut sq = ring.submission();
+    for entry in &sqe_storage_file {
+        println!("submitting stored request");
+        unsafe { let _ = sq.push(entry); }
+    }
+    drop(sq);
+    let sub = ring.submit_and_wait(1).expect("submit and wait failed");
+    drop(sub);
+
+    let cq = ring.completion();
+
+    for cqe in cq {
+        let res = cqe.result();
+        if res < 0 {
+            eprintln!("Unlink failed with error: {}", -res);
+        } else {
+            println!("File deleted successfully!");
         }
     }
 /*    {
@@ -227,13 +252,6 @@ fn main() {
         }
     };
     
-    if metadata.is_dir() {
-        let entries = list_dir_entries(path).unwrap();
-        println!("Entries: {:?}", entries);
-    }
-
-    println!("Checked arg");
-
     let mut ring = IoUring::new(8).expect("Failed to create io_uring");
 
     println!("created io_uring");
@@ -244,6 +262,8 @@ fn main() {
     if metadata.is_dir() {
 //    if false {
         delete_directory_iteratively(path, &mut ring);
+        println!("finished delete_directory_iteratively");
+        process::exit(1);
     } else {
         let vector = match list_dir_entries(dir) {
             Ok(vec) => vec,
@@ -257,7 +277,7 @@ fn main() {
         println!("check2: {:?}", vector);
         if let Some(index) = vector.iter().position(|s| s == path) {
             path = vector.get(index).unwrap();
-            println!("path to string: {}", path.to_string());
+            println!("path to string from vec: {}", path.to_string());
         } else {
             println!("found strings not valid");
             process::exit(1);
