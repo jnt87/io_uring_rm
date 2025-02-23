@@ -7,7 +7,7 @@ use std::{
     collections::VecDeque,
     ffi::{CString, CStr, c_char},
     process,
-    path::Path,
+    path::{Path, PathBuf},
     fs,
     fs::OpenOptions,
     io,
@@ -16,6 +16,7 @@ use std::{
     thread,
     time::Duration,
 };
+use walkdir::WalkDir;
 use signal_hook::iterator::Signals;
 use libc::{dirent64, AT_REMOVEDIR, AT_FDCWD, O_RDONLY, unlinkat, access, F_OK, DT_DIR, DT_REG}; //want to add O_TRUNC as a fast mode if we
                                                         //think we will replace files
@@ -27,6 +28,28 @@ macro_rules! trust_me_bro {
             $($stmt)*
         }
     };
+}
+
+fn collect_files_and_dirs(root: &str) -> (Vec<PathBuf>, Vec<PathBuf>, Vec<PathBuf>) {
+    let mut files = Vec::new();
+    let mut dirs = Vec::new();
+    let mut restricted = Vec::new();
+    for entry in WalkDir::new(root).into_iter().filter_map(|e| e.ok()) {
+        let path = entry.path().to_path_buf();
+        match fs::metadata(&path) {
+            Ok(metadata) => {
+                if metadata.is_file() {
+                    files.push(path);
+                } else if metadata.is_dir() {
+                    dirs.push(path);
+                }
+            }
+            Err(_) => {
+                restricted.push(path);
+            }
+        }
+    }
+    (files, dirs, restricted)
 }
 
 fn list_dir_entries(path: &str) -> io::Result<Vec<String>> {
@@ -264,7 +287,6 @@ fn main() {
     }
 
     let mut path = &args[1];
-    let dir = &args[2];
     let mut c_path;
     let metadata = match std::fs::metadata(path) {
         Ok(meta) => meta,
@@ -286,7 +308,7 @@ fn main() {
         println!("finished delete_directory_iteratively");
         process::exit(1);
     } else {
-        let vector = match list_dir_entries(dir) {
+        let vector = match list_dir_entries(path) {
             Ok(vec) => vec,
             Err(e) => {
                 eprintln!("Error occurred: {}", e);
