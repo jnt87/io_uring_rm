@@ -4,24 +4,85 @@ use io_uring::{
     types,
 };
 use std::{
-    collections::VecDeque,
     ffi::{CString, CStr, c_char},
     process,
-    path::{Path, PathBuf},
-    fs,
+    path::Path,
     fs::OpenOptions,
-    io,
     os::unix::io::AsRawFd,
     sync::{Arc, atomic::{AtomicBool, Ordering}},
     thread,
     time::Duration,
 };
-use walkdir::WalkDir;
 use signal_hook::iterator::Signals;
 use libc::{dirent64, AT_REMOVEDIR, AT_FDCWD, O_RDONLY, unlinkat, access, F_OK, DT_DIR, DT_REG}; //want to add O_TRUNC as a fast mode if we
                                                         //think we will replace files
 
+use walkdir::{WalkDir, DirEntry};
+use std::path::PathBuf;
+use std::fs;
+use std::collections::VecDeque;
+use std::io;
 
+struct DirectoryWalker {
+    walker: walkdir::IntoIter,
+    directories: VecDeque<PathBuf>,
+    restricted_files: Vec<PathBuf>,
+    restricted_dirs: Vec<PathBuf>,
+}
+
+impl DirectoryWalker {
+    fn new(root: &str) -> Self {
+        DirectoryWalker {
+            walker: WalkDir::new(root).into_iter(),
+            directories: VecDeque::new(),
+            restricted_files: Vec::new(),
+            restricted_dirs: Vec::new(),
+        }
+    }
+
+    fn next_chunk(&mut self, chunk_size: usize) -> Vec<PathBuf> {
+        let mut chunk = Vec::new();
+        for _ in 0..chunk_size {
+            if let Some(Ok(entry)) = self.walker.next() {
+                let path = entry.path().to_path_buf();
+                
+                match fs::metadata(&path) {
+                    Ok(metadata) => {
+                        if metadata.is_dir() {
+                            self.directories.push_front(path);
+                        } else if metadata.is_file() {
+                            chunk.push(path);
+                        }
+                    }
+                    Err(err) if err.kind() == io::ErrorKind::PermissionDenied => {
+                        if path.is_dir() {
+                            self.restricted_dirs.push(path);
+                        } else {
+                            self.restricted_files.push(path);
+                        }
+                    }
+                    Err(_) => {}
+                }
+            } else {
+                break;
+            }
+        }
+        chunk
+    }
+
+    fn get_directories(&self) -> Vec<PathBuf> {
+        self.directories.iter().cloned().collect()
+    }
+    fn get_restricted_files(&self) -> Vec<PathBuf> {
+        self.restricted_files.clone()
+    }
+    fn get_restricted_dirs(&self) -> Vec<PathBuf> {
+        self.restricted_dirs.clone()
+    }
+
+
+
+}
 macro_rules! trust_me_bro {
     ($($stmt:stmt;)*) => {
         unsafe {
@@ -30,27 +91,6 @@ macro_rules! trust_me_bro {
     };
 }
 
-fn collect_files_and_dirs(root: &str) -> (Vec<PathBuf>, Vec<PathBuf>, Vec<PathBuf>) {
-    let mut files = Vec::new();
-    let mut dirs = Vec::new();
-    let mut restricted = Vec::new();
-    for entry in WalkDir::new(root).into_iter().filter_map(|e| e.ok()) {
-        let path = entry.path().to_path_buf();
-        match fs::metadata(&path) {
-            Ok(metadata) => {
-                if metadata.is_file() {
-                    files.push(path);
-                } else if metadata.is_dir() {
-                    dirs.push(path);
-                }
-            }
-            Err(_) => {
-                restricted.push(path);
-            }
-        }
-    }
-    (files, dirs, restricted)
-}
 
 fn list_dir_entries(path: &str) -> io::Result<Vec<String>> {
     let mut entries = Vec::new();
@@ -278,6 +318,43 @@ fn wait_for_io_uring(ring: &mut IoUring, running: &Arc<AtomicBool>) {
 }
 
 fn main() {
+    println!("started tree parsing");
+    let mut walker = DirectoryWalker::new("test");
+    let chunk_size = 5;
+
+    loop {
+        let files = walker.next_chunk(chunk_size);
+        if files.is_empty() {
+            println!("Traversal complete.");
+            break;
+        }
+
+        println!("\nProcessing chunk:");
+        for file in files {
+            println!("{}", file.display());
+        }
+
+        println!("Pausing... Press Entry to continue.");
+        let _ = std::io::stdin().read_line(&mut String::new());
+    }
+    
+    println!("\nOrdered directories (deepest first):");
+    for dir in walker.get_directories() {
+        println!("{}", dir.display());
+    }
+
+    println!("\nRestricted files (no permissions):");
+    for file in walker.get_restricted_files() {
+        println!("{}", file.display());
+    }
+
+    println!("\nRestricted directories (no permissions):");
+    for dir in walker.get_restricted_dirs() {
+        println!("{}", dir.display());
+    }
+
+    println!("ended tree parsing");
+
     println!("Started rm");
 
     let args: Vec<String> = std::env::args().collect();
