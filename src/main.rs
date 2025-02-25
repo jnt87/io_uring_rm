@@ -23,6 +23,19 @@ use std::fs;
 use std::collections::VecDeque;
 use std::io;
 
+use clap::{Parser};
+
+#[derive(Parser, Default,Debug)]
+#[command(name = "rm", about = "removal in chunks")]
+struct Arguments {
+    root: String,
+
+    #[arg(short, long, default_value_t = 5)]
+    batch_size: usize,
+}
+
+
+
 struct DirectoryWalker {
     walker: walkdir::IntoIter,
     directories: VecDeque<PathBuf>,
@@ -319,8 +332,10 @@ fn wait_for_io_uring(ring: &mut IoUring, running: &Arc<AtomicBool>) {
 
 fn main() {
     println!("started tree parsing");
-    let mut walker = DirectoryWalker::new("test");
-    let chunk_size = 5;
+    let args = Arguments::parse();
+    let root: &str = &args.root;
+    let mut walker = DirectoryWalker::new(root);
+    let chunk_size = args.batch_size;
 
     loop {
         let files = walker.next_chunk(chunk_size);
@@ -363,7 +378,7 @@ fn main() {
         process::exit(1);
     }
 
-    let mut path = &args[1];
+    let mut path = root;
     let mut c_path;
     let metadata = match std::fs::metadata(path) {
         Ok(meta) => meta,
