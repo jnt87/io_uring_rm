@@ -55,7 +55,8 @@ impl DirectoryWalker {
 
     fn next_chunk(&mut self, chunk_size: usize) -> Vec<PathBuf> {
         let mut chunk = Vec::new();
-        for _ in 0..chunk_size {
+        let mut count = 0;
+        while count < chunk_size {
             if let Some(Ok(entry)) = self.walker.next() {
                 let path = entry.path().to_path_buf();
                 
@@ -65,6 +66,7 @@ impl DirectoryWalker {
                             self.directories.push_front(path);
                         } else if metadata.is_file() {
                             chunk.push(path);
+                            count += 1;
                         }
                     }
                     Err(err) if err.kind() == io::ErrorKind::PermissionDenied => {
