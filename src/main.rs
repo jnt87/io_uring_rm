@@ -85,6 +85,10 @@ impl DirectoryWalker {
         chunk
     }
 
+    fn next_dir_chunk(&mut self, chunk_size: usize) -> Vec<PathBuf> {
+        self.directories.drain(..chunk_size.min(self.directories.len())).collect()
+    }
+
     fn get_directories(&self) -> Vec<PathBuf> {
         self.directories.iter().cloned().collect()
     }
@@ -354,11 +358,21 @@ fn main() {
         println!("Pausing... Press Entry to continue.");
         let _ = std::io::stdin().read_line(&mut String::new());
     }
-    
-    println!("\nOrdered directories (deepest first):");
-    for dir in walker.get_directories() {
-        println!("{}", dir.display());
-    }
+    loop {
+        let dirs = walker.next_dir_chunk(chunk_size);
+        if dirs.is_empty() {
+            println!("Traversal complete.");
+            break;
+        }
+
+        println!("\nProcessing chunk:");
+        for dir in &dirs {
+            println!("{}", dir.display());
+        }
+
+        println!("Pausing... Press Entry to continue.");
+        let _ = std::io::stdin().read_line(&mut String::new());
+    }   
 
     println!("\nRestricted files (no permissions):");
     for file in walker.get_restricted_files() {
