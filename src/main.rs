@@ -4,25 +4,20 @@ use io_uring::{
     types,
 };
 use std::{
-    ffi::{CString, CStr, c_char},
+    ffi::{CString, c_char},
     process,
-    path::Path,
+    path::{Path, PathBuf},
     fs::OpenOptions,
-    os::unix::io::AsRawFd,
     sync::{Arc, atomic::{AtomicBool, Ordering}},
     thread,
     time::Duration,
+    fs,
+    collections::VecDeque,
+    io,
 };
 use signal_hook::iterator::Signals;
-use libc::{dirent64, AT_REMOVEDIR, AT_FDCWD, O_RDONLY, unlinkat, access, F_OK, DT_DIR, DT_REG}; //want to add O_TRUNC as a fast mode if we
-                                                        //think we will replace files
-
-use walkdir::{WalkDir, DirEntry};
-use std::path::PathBuf;
-use std::fs;
-use std::collections::VecDeque;
-use std::io;
-
+use libc::{AT_REMOVEDIR, AT_FDCWD, access, F_OK}; 
+use walkdir::WalkDir;
 use clap::{Parser};
 
 #[derive(Parser, Default,Debug)]
@@ -33,8 +28,6 @@ struct Arguments {
     #[arg(short, long, default_value_t = 5)]
     batch_size: usize,
 }
-
-
 
 struct DirectoryWalker {
     walker: walkdir::IntoIter,
@@ -102,14 +95,6 @@ impl DirectoryWalker {
 
 
 }
-macro_rules! trust_me_bro {
-    ($($stmt:stmt;)*) => {
-        unsafe {
-            $($stmt)*
-        }
-    };
-}
-
 
 fn list_dir_entries(path: &str) -> io::Result<Vec<String>> {
     let mut entries = Vec::new();
@@ -215,7 +200,6 @@ fn delete_directory_iteratively(root_path: &str, ring: &mut IoUring) {
         }
         drop(sq);
         let sub = ring.submit_and_wait(1).expect("submit and wait failed");
-        drop(sub);
 
         let cq = ring.completion();
 
@@ -258,7 +242,6 @@ fn delete_directory_iteratively(root_path: &str, ring: &mut IoUring) {
             }
             drop(sq);
             let sub = ring.submit_and_wait(1).expect("submit and wait failed");
-            drop(sub);
             let cq = ring.completion();
             for cqe in cq {
                 let res = cqe.result();
