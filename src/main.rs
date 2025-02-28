@@ -40,13 +40,16 @@ impl IoUringRm {
         for file in files {
             if let Ok(c_file) = CString::new(file.to_string_lossy().as_bytes()) {
                 self.path_storage.push(c_file);
-                let c_file_ref = self.path_storage.last().unwrap();
-
-                let entry = opcode::UnlinkAt::new(types::Fd(AT_FDCWD), c_file_ref.as_ptr())
-                    .build()
-                    .user_data(sqe_storage.len() as u64);
-
-                sqe_storage.push(entry);
+                if let Some(c_file_ref) = self.path_storage.last() {
+    
+                    let entry = opcode::UnlinkAt::new(types::Fd(AT_FDCWD), c_file_ref.as_ptr())
+                        .build()
+                        .user_data(sqe_storage.len() as u64);
+    
+                    sqe_storage.push(entry);
+                } else {
+                    eprintln!("Error: Failed to get last stored poath for {:?}", file);
+                }
             } else {
                 eprintln!("Failed to convert path: {:?}", file);
             }
@@ -60,14 +63,17 @@ impl IoUringRm {
         for dir in dirs {
             if let Ok(c_dir) = CString::new(dir.to_string_lossy().as_bytes()) {
                 self.path_storage.push(c_dir);
-                let c_dir_ref = self.path_storage.last().unwrap();
-
-                let entry = opcode::UnlinkAt::new(types::Fd(AT_FDCWD), c_dir_ref.as_ptr())
-                    .flags(AT_REMOVEDIR)
-                    .build()
-                    .user_data(sqe_storage.len() as u64);
-
-                sqe_storage.push(entry);
+                if let Some(c_dir_ref) = self.path_storage.last() {
+    
+                    let entry = opcode::UnlinkAt::new(types::Fd(AT_FDCWD), c_dir_ref.as_ptr())
+                        .flags(AT_REMOVEDIR)
+                        .build()
+                        .user_data(sqe_storage.len() as u64);
+    
+                    sqe_storage.push(entry);
+                } else {
+                    eprintln!("Error: Failed to get last stored path for {:?}", dir);
+                }
             } else {
                 eprintln!("Failed to convert path: {:?}", dir);
             }
@@ -211,7 +217,6 @@ fn main() {
 
         println!("Pausing... Press Entry to continue.");
         let _ = std::io::stdin().read_line(&mut String::new());
-
         rmer.delete_files(files);
     }
     loop {
@@ -226,11 +231,10 @@ fn main() {
             println!("{}", dir.display());
         }
 
-        rmer.delete_directories(dirs);
 
         println!("Pausing... Press Entry to continue.");
         let _ = std::io::stdin().read_line(&mut String::new());
-
+        rmer.delete_directories(dirs);
     }   
 
     println!("\nRestricted files (no permissions):");
