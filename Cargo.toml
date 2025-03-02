@@ -3,6 +3,10 @@ name = "io_uring_rm"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "io_uring_rm"
+path = "src/lib.rs"
+
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }
 io-uring = "0.7.4"
