@@ -13,3 +13,6 @@ io-uring = "0.7.4"
 libc = "0.2.169"
 signal-hook = "0.3.17"
 walkdir = "2.5.0"
+random_tree = { path = "../random_tree/" }
+rand = "0.9.0"
+rand_chacha = "0.9.0"

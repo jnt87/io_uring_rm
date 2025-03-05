@@ -21,11 +21,18 @@ use walkdir::WalkDir;
 use clap::{Parser};
 
 use io_uring_rm::{Arguments, DirectoryWalker, IoUringRm, handle_signals};
+use rand::{Rng, SeedableRng};
+use rand_chacha::ChaChaRng;
+use random_tree::{create_random_tree};
 
 fn main() {
     println!("started tree parsing");
     let args = Arguments::parse();
     let root: &str = &args.root;
+    let confirm = args.confirm.clone();
+    let seed = 7;
+    let mut rng = ChaChaRng::seed_from_u64(seed);
+    create_random_tree(&PathBuf::from(root), &mut rng, 3);
     let mut walker = DirectoryWalker::new(root);
     let chunk_size = args.batch_size;
     let mut rmer = IoUringRm::new(chunk_size as u32).expect("Failed to create io_uring");
@@ -41,9 +48,10 @@ fn main() {
         for file in &files {
             println!("{}", file.display());
         }
-
-        println!("Pausing... Press Entry to continue.");
-        let _ = std::io::stdin().read_line(&mut String::new());
+        if confirm {
+            println!("Pausing... Press Entry to continue.");
+            let _ = std::io::stdin().read_line(&mut String::new());
+        }
         rmer.delete_files(files);
     }
     loop {
@@ -58,9 +66,10 @@ fn main() {
             println!("{}", dir.display());
         }
 
-
-        println!("Pausing... Press Entry to continue.");
-        let _ = std::io::stdin().read_line(&mut String::new());
+        if confirm {
+            println!("Pausing... Press Entry to continue.");
+            let _ = std::io::stdin().read_line(&mut String::new());
+        }
         rmer.delete_directories(dirs);
     }   
 
