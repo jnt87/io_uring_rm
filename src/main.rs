@@ -20,7 +20,8 @@ use libc::{AT_REMOVEDIR, AT_FDCWD, access, F_OK};
 use walkdir::WalkDir;
 use clap::{Parser};
 
-use io_uring_rm::{Arguments, DirectoryWalker, IoUringRm, handle_signals};
+use io_uring_rm::{DirectoryWalker, IoUringRm, handle_signals};
+use io_uring_rm::removal::Arguments;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaChaRng;
 use random_tree::{create_random_tree};

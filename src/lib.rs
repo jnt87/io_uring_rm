@@ -18,7 +18,11 @@ use std::{
 use signal_hook::iterator::Signals;
 use libc::{AT_REMOVEDIR, AT_FDCWD, access, F_OK}; 
 use walkdir::WalkDir;
-use clap::{Parser};
+
+pub mod removal {
+    pub mod arguments;
+    pub use arguments::Arguments;
+}
 
 pub struct IoUringRm {
     ring: IoUring,
@@ -105,17 +109,7 @@ impl IoUringRm {
     }
 }
 
-#[derive(Parser, Default,Debug)]
-#[command(name = "rm", about = "removal in chunks")]
-pub struct Arguments {
-    pub root: String,
-    #[arg(short = 'c', long = "confirm", default_value_t = false)]
-    pub confirm: bool,
-    #[arg(short = 'b', long = "batch_size", default_value_t = 5)]
-    pub batch_size: usize,
-    #[arg(short = 't', long = "testing", default_value_t = false)]
-    pub testing: bool,
-}
+
 
 pub struct DirectoryWalker {
     walker: walkdir::IntoIter,
