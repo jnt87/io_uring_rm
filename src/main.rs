@@ -1,28 +1,12 @@
-use io_uring::{
-    IoUring,
-    opcode,
-    types,
-};
 use std::{
-    ffi::{CString, c_char},
-    process,
-    path::{Path, PathBuf},
-    fs::OpenOptions,
-    sync::{Arc, atomic::{AtomicBool, Ordering}},
-    thread,
-    time::Duration,
-    fs,
-    collections::VecDeque,
-    io,
+    path::PathBuf,
+    sync::{Arc, atomic::AtomicBool},
 };
-use signal_hook::iterator::Signals;
-use libc::{AT_REMOVEDIR, AT_FDCWD, access, F_OK}; 
-use walkdir::WalkDir;
 use clap::{Parser};
 
 use io_uring_rm::{IoUringRm, handle_signals};
 use io_uring_rm::removal::{Arguments, DirectoryWalker};
-use rand::{Rng, SeedableRng};
+use rand::SeedableRng;
 use rand_chacha::ChaChaRng;
 use random_tree::{create_random_tree};
 

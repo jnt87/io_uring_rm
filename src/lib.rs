@@ -4,16 +4,14 @@ use io_uring::{
     types,
 };
 use std::{
-    ffi::{CString, c_char},
-    process,
+    ffi::CString,
     path::PathBuf,
     sync::{Arc, atomic::{AtomicBool, Ordering}},
     thread,
-    time::Duration,
     io,
 };
 use signal_hook::iterator::Signals;
-use libc::{AT_REMOVEDIR, AT_FDCWD, access, F_OK}; 
+use libc::{AT_REMOVEDIR, AT_FDCWD}; 
 
 pub mod removal {
     pub mod arguments;
