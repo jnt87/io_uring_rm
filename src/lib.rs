@@ -6,19 +6,18 @@ use io_uring::{
 use std::{
     ffi::CString,
     path::PathBuf,
-    sync::{Arc, atomic::{AtomicBool, Ordering}},
-    thread,
     io,
 };
-use signal_hook::iterator::Signals;
 use libc::{AT_REMOVEDIR, AT_FDCWD}; 
 
 pub mod removal {
     pub mod arguments;
     pub mod directorywalker;
+    pub mod sighandle;
 
     pub use arguments::Arguments;
     pub use directorywalker::DirectoryWalker;
+    pub use sighandle::handle_signals;
 }
 
 pub struct IoUringRm {
@@ -105,17 +104,3 @@ impl IoUringRm {
         }
     }
 }
-
-pub fn handle_signals(signals: Vec<i32>, running: Arc<AtomicBool>) {
-    let mut signals = Signals::new(&signals).expect("Failed to register signals");
-
-    thread::spawn(move || {
-        for signal in signals.forever() {
-            println!("Recieved signal: {}", signal);
-            running.store(false, Ordering::Relaxed);
-            break;
-        }
-    });
-
-}
-
