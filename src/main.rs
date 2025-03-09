@@ -4,8 +4,7 @@ use std::{
 };
 use clap::{Parser};
 
-use io_uring_rm::{IoUringRm};
-use io_uring_rm::removal::{Arguments, DirectoryWalker, sighandle::handle_signals};
+use io_uring_rm::removal::{Arguments, DirectoryWalker, IoUringRm, handle_signals};
 use rand::SeedableRng;
 use rand_chacha::ChaChaRng;
 use random_tree::{create_random_tree};
