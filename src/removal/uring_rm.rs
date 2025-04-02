@@ -90,7 +90,7 @@ impl IoUringRm {
             if res < 0 {
                 eprintln!("Unlink failed with error: {}", -res);
             } else {
-                println!("Deletion successful");
+                //println!("Deletion successful");
             }
         }
     }

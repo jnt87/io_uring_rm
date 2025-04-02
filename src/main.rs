@@ -10,13 +10,13 @@ use rand_chacha::ChaChaRng;
 use random_tree::{create_random_tree};
 
 fn main() {
-    println!("started tree parsing");
+    //println!("started tree parsing");
     let args = Arguments::parse();
     let root: &str = &args.root;
     let confirm = args.confirm.clone();
     let seed = 7;
-    let mut rng = ChaChaRng::seed_from_u64(seed);
-    create_random_tree(&PathBuf::from(root), &mut rng, 3);
+    //let mut rng = ChaChaRng::seed_from_u64(seed);
+    //create_random_tree(&PathBuf::from(root), &mut rng, 3);
     let mut walker = DirectoryWalker::new(root);
     let chunk_size = args.batch_size;
     let mut rmer = IoUringRm::new(chunk_size as u32).expect("Failed to create io_uring");
@@ -24,13 +24,13 @@ fn main() {
     loop {
         let files = walker.next_chunk(chunk_size);
         if files.is_empty() {
-            println!("Traversal complete.");
+            //println!("Traversal complete.");
             break;
         }
 
-        println!("\nProcessing chunk:");
+        //println!("\nProcessing chunk:");
         for file in &files {
-            println!("{}", file.display());
+            //println!("{}", file.display());
         }
         if confirm {
             println!("Pausing... Press Entry to continue.");
@@ -41,7 +41,7 @@ fn main() {
     loop {
         let dirs = walker.next_dir_chunk(chunk_size);
         if dirs.is_empty() {
-            println!("Traversal complete.");
+            //println!("Traversal complete.");
             break;
         }
 
@@ -57,19 +57,34 @@ fn main() {
         rmer.delete_directories(dirs);
     }   
 
-    println!("\nRestricted files (no permissions):");
     for file in walker.get_restricted_files() {
-        println!("{}", file.display());
+        println!("Restricted file: {}", file.display());
     }
 
-    println!("\nRestricted directories (no permissions):");
     for dir in walker.get_restricted_dirs() {
-        println!("{}", dir.display());
+        println!("Restricted dir: {}", dir.display());
     }
 
-    println!("ended tree parsing");
+    //println!("ended tree parsing");
 
     let running = Arc::new(AtomicBool::new(true));
     let signals = vec![libc::SIGINT, libc::SIGTERM, libc::SIGHUP];
     handle_signals(signals, running.clone());
+}
+
+// simple unit tests to confirm the rm function works on a single file
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn test_rm() {
+        let root = PathBuf::from("/tmp");
+        let mut walker = DirectoryWalker::new(&root);
+        let files = walker.next_chunk(1);
+        assert_eq!(files.len(), 1);
+        let mut rmer = IoUringRm::new(1).expect("Failed to create io_uring");
+        rmer.delete_files(files);
+    }
 }
